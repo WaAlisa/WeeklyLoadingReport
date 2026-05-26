@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>货量周报大屏 | 自动加载Excel数据版</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/interactjs@1.10.11/dist/interact.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: #eef2f5; font-family: 'Segoe UI', 'Roboto', sans-serif; padding: 20px; color: #1e2a3a; overflow-x: auto; }
+        .dashboard-container { position: relative; max-width: 100%; margin: 0 auto; background: #f8fafc; border-radius: 28px; box-shadow: 0 20px 35px -12px rgba(0,0,0,0.1); padding: 12px 24px 32px; min-height: 100vh; }
+        .header-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 16px; padding-bottom: 6px; border-bottom: 2px solid #e2e8f0; flex-wrap: wrap; background: #f8fafc; }
+        .header-left { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; }
+        .header-center { flex-shrink: 0; text-align: center; }
+        .header-center h1 { font-size: 1.8rem; font-weight: 700; background: linear-gradient(135deg, #1e466e, #2a6f9c); -webkit-background-clip: text; background-clip: text; color: transparent; white-space: nowrap; }
+        .header-right { display: flex; gap: 8px; align-items: flex-end; flex-wrap: nowrap; }
+        .filter-group { min-width: 100px; }
+        .filter-group label { font-weight: 600; margin-bottom: 2px; display: block; color: #1f4f82; font-size: 0.7rem; }
+        .filter-group select, .upload-label, .layout-btn { width: 100%; padding: 4px 8px; border-radius: 32px; border: 1px solid #cfdee9; background: white; font-size: 0.75rem; cursor: pointer; text-align: center; display: inline-block; }
+        .upload-label { background: #2c7da0; color: white; }
+        .upload-label:hover { background: #1f5e7a; }
+        .layout-btn { background: #f0f4f8; color: #1e466e; border-color: #bdd4e7; white-space: nowrap; padding: 4px 6px; font-size: 0.7rem; }
+        .layout-btn:hover { background: #e2e8f0; }
+        input[type="file"] { display: none; }
+        .status-msg { font-size: 0.55rem; margin-top: 2px; text-align: center; color: #2c7a4d; white-space: nowrap; }
+        .card, .kpi-card { position: absolute; background: #fff; border-radius: 20px; border: 1px solid #eef2f6; box-shadow: 0 4px 12px rgba(0,0,0,0.05); transition: box-shadow 0.2s; display: flex; flex-direction: column; overflow: hidden; }
+        .card:hover, .kpi-card:hover { box-shadow: 0 8px 20px rgba(0,0,0,0.1); }
+        .card-header, .kpi-left { cursor: move; user-select: none; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px 0 12px; }
+        .card-header h3 { font-size: 0.9rem; font-weight: 600; margin: 0; border-left: 3px solid #2c7da0; padding-left: 8px; }
+        .chart-box { flex: 1; width: 100%; min-height: 0; }
+        .resize-handle { display: none; }
+        .kpi-card { padding: 8px 12px; gap: 12px; flex-direction: row; justify-content: space-between; align-items: center; }
+        .kpi-left h4 { font-size: 0.85rem; color: #4b6a8b; margin-bottom: 4px; }
+        .kpi-main { font-size: 1.5rem; font-weight: 700; color: #1e466e; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+        .unit { font-size: 0.7rem; font-weight: normal; color: #6c86a3; }
+        .delta { font-size: 0.65rem; background: #f1f5f9; padding: 2px 6px; border-radius: 40px; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
+        .delta-up { color: #2c9e6e !important; }
+        .delta-down { color: #d9534f !important; }
+        .kpi-right { flex: 1.2; background: #f8fafc; border-radius: 16px; padding: 6px 10px; display: flex; flex-direction: column; gap: 4px; }
+        .right-stat { display: flex; justify-content: space-between; font-size: 0.75rem; white-space: nowrap; }
+        .right-stat span:first-child { font-weight: 600; color: #3e6b8c; }
+        .right-stat span:last-child { font-weight: 700; color: #1f3b4c; display: flex; gap: 4px; align-items: baseline; }
+        .small-delta-kpi { font-size: 0.6rem; font-weight: normal; display: inline-flex; align-items: center; }
+        .table-wrapper { flex: 1; overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        th, td { padding: 8px 10px; text-align: right; border-bottom: 1px solid #e9ecef; }
+        th:first-child, td:first-child { text-align: left; }
+        th { background-color: #f1f5f9; color: #1e466e; font-weight: 700; font-size: 0.9rem; }
+        td { font-weight: 500; }
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 10000; justify-content: center; align-items: center; }
+        .modal-window { background: #fff; border-radius: 24px; width: 70vw; height: 70vh; display: flex; flex-direction: column; }
+        .modal-header { padding: 10px 16px; cursor: move; background: #f8fafc; border-radius: 24px 24px 0 0; display: flex; justify-content: space-between; }
+        .modal-close { background: none; border: none; font-size: 22px; cursor: pointer; }
+        .modal-chart-container { flex: 1; padding: 12px; }
+        .modal-chart { width: 100%; height: 100%; }
+        .toast-msg { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1e466e; color: white; padding: 8px 20px; border-radius: 40px; font-size: 0.8rem; z-index: 20000; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+        @media (max-width: 1000px) {
+            .header-left, .header-right { gap: 8px; }
+            .filter-group { min-width: 90px; }
+            .layout-btn { padding: 4px 4px; font-size: 0.65rem; }
+            .header-right { gap: 4px; }
+            .header-center h1 { font-size: 1.4rem; }
+        }
+    </style>
+</head>
+<body>
+<div class="dashboard-container" id="dashboardContainer">
+    <div class="header-row">
+        <div class="header-left">
+            <div class="filter-group">
+                <label>📂 数据源</label>
+                <label for="excel-upload" class="upload-label">上传 Excel</label>
+                <input type="file" id="excel-upload" accept=".xlsx, .xls" />
+                <div id="upload-status" class="status-msg">✨ 正在加载数据...</div>
+            </div>
+            <div class="filter-group"><label>✈️ 航线R</label><select id="filter-route"></select></div>
+            <div class="filter-group"><label>📦 产品类型大类</label><select id="filter-product"></select></div>
+            <div class="filter-group"><label>📅 开航周</label><select id="filter-week"></select></div>
+        </div>
+        <div class="header-center"><h1>📊 货量周报大屏</h1></div>
+        <div class="header-right">
+            <button id="saveLayoutBtn" class="layout-btn">💾 保存布局(本机)</button>
+            <button id="exportLayoutBtn" class="layout-btn">📤 导出布局文件</button>
+            <label for="importLayoutFile" class="layout-btn" style="display: inline-block;">📥 导入布局文件</label>
+            <input type="file" id="importLayoutFile" accept=".json" style="display:none;" />
+            <button id="resetLayoutBtn" class="layout-btn">🔄 重置布局</button>
+        </div>
+    </div>
+    <div id="cardsContainer" style="position: relative; min-height: 1300px;"></div>
+</div>
+<div id="modalOverlay" class="modal-overlay">
+    <div id="modalWindow" class="modal-window">
+        <div class="modal-header"><span id="modalTitle">图表放大</span><button class="modal-close">&times;</button></div>
+        <div class="modal-chart-container"><div id="modalChart" class="modal-chart"></div></div>
+    </div>
+</div>
+<div id="toastMsg" class="toast-msg"></div>
+
+<script>
+(function(){
+    let rawData = [];
+    let filteredData = [];
+    let chartInstances = { barline: null, donut: null, sunburst: null, tickets: null, carrier: null };
+    let modalChart = null;
+    const cardsContainer = document.getElementById('cardsContainer');
+    
+    // 布局相关变量
+    const LAYOUT_KEY = 'freight_dashboard_layout';
+    let hasCustomLayout = false;
+    const DEFAULT_DESIGN_WIDTH = 1600;
+    const DEFAULT_CARDS = [
+        { type: 'kpi-fcl', width: 460, height: 110, left: 20, top: 60 },
+        { type: 'kpi-lcl', width: 460, height: 110, left: 500, top: 60 },
+        { type: 'kpi-tickets', width: 460, height: 110, left: 980, top: 60 },
+        { type: 'table', width: 740, height: 300, left: 20, top: 200 },
+        { type: 'barline', width: 680, height: 380, left: 790, top: 200 },
+        { type: 'donut', width: 540, height: 380, left: 20, top: 530 },
+        { type: 'sunburst', width: 640, height: 380, left: 590, top: 530 },
+        { type: 'tickets', width: 540, height: 380, left: 20, top: 940 },
+        { type: 'carrier', width: 820, height: 440, left: 590, top: 940 }
+    ];
+    
+    // 公共函数
+    function formatNumber(n) { return Math.round(n).toLocaleString(); }
+    function escapeHtml(str) { if(!str) return ''; return str.replace(/[&<>]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[m])); }
+    
+    // 数据预处理
+    function preprocessData(rows){
+        return rows.map(row => {
+            let cargo = parseFloat(row["货量"]) || 0;
+            let tickets = parseFloat(row["票数"]) || 0;
+            let cargoCarrier = parseFloat(row["货量(船公司)"]) || 0;
+            let solicit = (row["揽货方式R"] || "").toString().trim();
+            if(solicit === "自揽") solicit = "自揽货";
+            else if(solicit === "指定") solicit = "指定货";
+            let bizNature = (row["业务性质R"] || "").toString().trim();
+            let bizCat = "其他";
+            if(bizNature === "自配") bizCat = "自配";
+            else if(bizNature === "外配") bizCat = "外配";
+            return {
+                ...row,
+                "航线R": row["航线R"] ? row["航线R"].toString().trim() : "其他",
+                "产品类型大类": row["产品类型大类"] ? row["产品类型大类"].toString().trim() : "未知",
+                "开航周R": row["开航周R"] ? row["开航周R"].toString().trim() : "",
+                "操作口岸大类": row["操作口岸大类"] ? row["操作口岸大类"].toString().trim() : "未知",
+                "业务口岸大类": row["业务口岸大类"] ? row["业务口岸大类"].toString().trim() : "未知",
+                "产品类型": row["产品类型"] ? row["产品类型"].toString().trim() : "未分类",
+                "船公司R": row["船公司R"] ? row["船公司R"].toString().trim() : "未知",
+                "揽货方式R": solicit,
+                "业务性质Cat": bizCat,
+                "货量": cargo,
+                "票数": tickets,
+                "货量(船公司)": cargoCarrier
+            };
+        });
+    }
+    
+    function getSortedWeeks(data){
+        let weeks = new Set();
+        data.forEach(r => { if(r["开航周R"]) weeks.add(r["开航周R"]); });
+        return Array.from(weeks).sort();
+    }
+    
+    function computeKPI(route, currentWeek){
+        const currentData = rawData.filter(row => {
+            if(route !== "ALL" && row["航线R"] !== route) return false;
+            if(currentWeek !== "ALL" && row["开航周R"] !== currentWeek) return false;
+            return true;
+        });
+        let prevWeek = null;
+        if(currentWeek !== "ALL"){
+            const weeks = getSortedWeeks(rawData);
+            const idx = weeks.indexOf(currentWeek);
+            if(idx > 0) prevWeek = weeks[idx-1];
+        }
+        let prevData = [];
+        if(prevWeek && route !== "ALL") prevData = rawData.filter(r => r["航线R"]===route && r["开航周R"]===prevWeek);
+        else if(prevWeek && route === "ALL") prevData = rawData.filter(r => r["开航周R"]===prevWeek);
+        
+        const aggregate = (data) => {
+            let fclTotal=0, fclSelf=0, fclDsg=0, lclTotal=0, lclSelf=0, lclDsg=0, totalTickets=0, fclTickets=0, lclTickets=0;
+            data.forEach(r => {
+                let q = r["货量"], t = r["票数"];
+                let isFcl = (r["产品类型大类"] === "整箱");
+                let isLcl = (r["产品类型大类"] === "拼箱");
+                let isSelf = (r["揽货方式R"] === "自揽货");
+                let isDsg = (r["揽货方式R"] === "指定货");
+                totalTickets += t;
+                if(isFcl){
+                    fclTotal += q; fclTickets += t;
+                    if(isSelf) fclSelf += q;
+                    if(isDsg) fclDsg += q;
+                } else if(isLcl){
+                    lclTotal += q; lclTickets += t;
+                    if(isSelf) lclSelf += q;
+                    if(isDsg) lclDsg += q;
+                }
+            });
+            return { fclTotal,fclSelf,fclDsg, lclTotal,lclSelf,lclDsg, totalTickets,fclTickets,lclTickets };
+        };
+        const curr = aggregate(currentData);
+        const prev = prevData.length ? aggregate(prevData) : null;
+        const deltaHtml = (cur, pre) => {
+            if(pre === undefined || pre === null) return "";
+            let diff = cur - pre;
+            if(diff === 0) return `<span class="delta-up">较上周 → 0</span>`;
+            let arrow = diff > 0 ? "▲" : "▼";
+            let cls = diff > 0 ? "delta-up" : "delta-down";
+            return `<span class="${cls}">较上周 ${arrow} ${Math.abs(Math.round(diff)).toLocaleString()}</span>`;
+        };
+        return {
+            curr, prev,
+            fclDelta: deltaHtml(curr.fclTotal, prev?.fclTotal),
+            fclSelfDelta: deltaHtml(curr.fclSelf, prev?.fclSelf),
+            fclDsgDelta: deltaHtml(curr.fclDsg, prev?.fclDsg),
+            lclDelta: deltaHtml(curr.lclTotal, prev?.lclTotal),
+            lclSelfDelta: deltaHtml(curr.lclSelf, prev?.lclSelf),
+            lclDsgDelta: deltaHtml(curr.lclDsg, prev?.lclDsg),
+            ticketsDelta: deltaHtml(curr.totalTickets, prev?.totalTickets)
+        };
+    }
+    
+    function updateKPI(){
+        let route = document.getElementById("filter-route").value;
+        let week = document.getElementById("filter-week").value;
+        if(week === "ALL"){
+            let weeks = getSortedWeeks(rawData);
+            week = weeks.length ? weeks[weeks.length-1] : "";
+        }
+        let kpi = computeKPI(route, week);
+        document.getElementById("fcl-total").innerText = formatNumber(kpi.curr.fclTotal);
+        document.getElementById("fcl-delta").innerHTML = kpi.fclDelta;
+        document.getElementById("fcl-self").innerText = formatNumber(kpi.curr.fclSelf);
+        document.getElementById("fcl-self-delta").innerHTML = kpi.fclSelfDelta;
+        document.getElementById("fcl-dsg").innerText = formatNumber(kpi.curr.fclDsg);
+        document.getElementById("fcl-dsg-delta").innerHTML = kpi.fclDsgDelta;
+        document.getElementById("lcl-total").innerText = Math.round(kpi.curr.lclTotal).toLocaleString();
+        document.getElementById("lcl-delta").innerHTML = kpi.lclDelta;
+        document.getElementById("lcl-self").innerText = Math.round(kpi.curr.lclSelf).toLocaleString();
+        document.getElementById("lcl-self-delta").innerHTML = kpi.lclSelfDelta;
+        document.getElementById("lcl-dsg").innerText = Math.round(kpi.curr.lclDsg).toLocaleString();
+        document.getElementById("lcl-dsg-delta").innerHTML = kpi.lclDsgDelta;
+        document.getElementById("total-tickets").innerText = formatNumber(kpi.curr.totalTickets);
+        document.getElementById("tickets-delta").innerHTML = kpi.ticketsDelta;
+        document.getElementById("fcl-tickets").innerText = formatNumber(kpi.curr.fclTickets);
+        document.getElementById("lcl-tickets").innerText = formatNumber(kpi.curr.lclTickets);
+    }
+    
+    // 所有图表渲染函数
+    function renderSummaryTable(){
+        if(!filteredData.length){ document.getElementById("summary-table-body").innerHTML = '<tr><td colspan="5" style="text-align:center">暂无数据</td></tr>'; return; }
+        let group = new Map();
+        for(let r of filteredData){
+            let port = r["操作口岸大类"];
+            if(!group.has(port)) group.set(port, {自配:0,外配:0,其他:0});
+            let cat = r["业务性质Cat"];
+            let val = r["货量"];
+            let stat = group.get(port);
+            if(cat === "自配") stat.自配 += val;
+            else if(cat === "外配") stat.外配 += val;
+            else stat.其他 += val;
+        }
+        let html = '', totalAll = {自配:0,外配:0,其他:0,合计:0};
+        let ports = Array.from(group.keys()).sort();
+        for(let p of ports){
+            let v = group.get(p);
+            let sum = v.自配 + v.外配 + v.其他;
+            totalAll.自配 += v.自配; totalAll.外配 += v.外配; totalAll.其他 += v.其他; totalAll.合计 += sum;
+            html += `<tr><td>${escapeHtml(p)}</td><td style="text-align:right">${formatNumber(v.自配)}</td><td style="text-align:right">${formatNumber(v.外配)}</td><td style="text-align:right">${formatNumber(v.其他)}</td><td style="text-align:right"><strong>${formatNumber(sum)}</strong></td></tr>`;
+        }
+        html += `<tr style="background:#f2f6f9;"><td><strong>合计</strong></td><td style="text-align:right">${formatNumber(totalAll.自配)}</td><td style="text-align:right">${formatNumber(totalAll.外配)}</td><td style="text-align:right">${formatNumber(totalAll.其他)}</td><td style="text-align:right"><strong>${formatNumber(totalAll.合计)}</strong></td></tr>`;
+        document.getElementById("summary-table-body").innerHTML = html;
+    }
+    
+    function renderBarLine(){
+        if(!filteredData.length) return;
+        const productType = document.getElementById("filter-product").value;
+        let dataForChart = filteredData;
+        if(productType === "整箱") {
+            dataForChart = filteredData.filter(row => { const port = row["业务口岸大类"]; return port && port.toUpperCase() !== "NULL"; });
+        }
+        if(dataForChart.length === 0) { if(chartInstances.barline) chartInstances.barline.clear(); return; }
+        let portMap = new Map();
+        for(let r of dataForChart){
+            let port = r["业务口岸大类"];
+            if(!portMap.has(port)) portMap.set(port, {自揽:0,指定:0,total:0});
+            let stat = portMap.get(port);
+            stat.total += r["货量"];
+            if(r["揽货方式R"] === "自揽货") stat.自揽 += r["货量"];
+            if(r["揽货方式R"] === "指定货") stat.指定 += r["货量"];
+        }
+        let sorted = Array.from(portMap.keys()).sort((a,b)=>portMap.get(b).total - portMap.get(a).total);
+        let opt = {
+            tooltip:{ trigger:'axis', formatter: function(params) { let res = params[0].axisValue + '<br/>'; params.forEach(p => { res += `${p.marker} ${p.seriesName}: ${Math.round(p.value).toLocaleString()}<br/>`; }); return res; } },
+            legend:{data:['自揽货','指定货','总货量(曲线)'], left:'right'},
+            xAxis:{type:'category', data:sorted, axisLabel:{rotate:30, fontSize:13, fontWeight:'bold'}},
+            yAxis:{ type:'value', name:'货量', axisLabel: { formatter: (value) => Math.round(value).toLocaleString(), fontSize:12 } },
+            series:[
+                    {name:'自揽货', type:'bar', data:sorted.map(p=>portMap.get(p).自揽), itemStyle:{color:'#5d9bc7'}, label:{show:true,position:'inside', formatter: p => Math.round(p.value).toLocaleString(), fontSize:11}},
+                    {name:'指定货', type:'bar', data:sorted.map(p=>portMap.get(p).指定), itemStyle:{color:'#e68a2e'}, label:{show:true,position:'inside', formatter: p => Math.round(p.value).toLocaleString(), fontSize:11}},
+                    {name:'总货量(曲线)', type:'line', smooth:true, data:sorted.map(p=>portMap.get(p).total), lineStyle:{width:3,color:'#2c9e6e'}, symbol:'circle', label:{show:true,position:'top', formatter: p => Math.round(p.value).toLocaleString(),fontSize:12, fontWeight:'bold'}}
+            ]
+        };
+        if(!chartInstances.barline) chartInstances.barline = echarts.init(document.getElementById("chart-bar-line"));
+        chartInstances.barline.setOption(opt, true);
+    }
+    
+    function renderDonut(){
+        if(!filteredData.length) return;
+        let prodMap = new Map();
+        for(let r of filteredData) prodMap.set(r["产品类型"], (prodMap.get(r["产品类型"])||0) + r["货量"]);
+        let data = Array.from(prodMap.entries()).filter(d=>d[1]>0).map(([n,v])=>({name:n,value:v})).sort((a,b)=>b.value-a.value);
+        let total = data.reduce((s,d)=>s+d.value,0);
+        let opt = {
+            tooltip:{trigger:'item', formatter: p => `${p.name}: ${Math.round(p.value).toLocaleString()} (${p.percent}%)`},
+            legend:{show:false},
+            series:[{ type:'pie', radius:['42%','70%'], avoidLabelOverlap:true, label:{show:true, formatter: p => `${p.name}: ${Math.round(p.value).toLocaleString()}`, position:'outside', fontSize:12}, data:data, itemStyle:{borderRadius:8, borderColor:'#fff', borderWidth:2}, color:['#5470c6','#fac858','#ee6666','#73c0de','#3ba272','#fc8452'] }],
+            title:{show:true, text:`总货量 ${Math.round(total).toLocaleString()}`, left:'center', top:'center', textStyle:{fontSize:13, fontWeight:'bold'}}
+        };
+        if(!chartInstances.donut) chartInstances.donut = echarts.init(document.getElementById("chart-donut"));
+        chartInstances.donut.setOption(opt, true);
+    }
+    
+    function renderSunburst() {
+        if (!filteredData.length) return;
+        let routeMap = new Map();
+        for (let r of filteredData) {
+            let route = r["航线R"], port = r["业务口岸大类"], qty = r["货量"];
+            if (!routeMap.has(route)) routeMap.set(route, new Map());
+            let pm = routeMap.get(route);
+            pm.set(port, (pm.get(port) || 0) + qty);
+        }
+        let sunData = [];
+        for (let [route, pm] of routeMap.entries()) {
+            let children = [], routeTotal = 0;
+            for (let [port, val] of pm.entries()) { children.push({ name: port, value: val }); routeTotal += val; }
+            let maxVal = -Infinity;
+            if (route === "拉美" || route === "其他航线") { for (let child of children) if (child.value > maxVal) maxVal = child.value; }
+            children = children.map(child => {
+                let cfg = { name: child.name, value: child.value, label: { show: true, position: 'inside', rotate: 'radial', fontSize: 11, color: '#2c5a7a', fontWeight: 'normal', formatter: (params) => `${params.name}\n${Math.round(params.value).toLocaleString()}` } };
+                if ((route === "拉美" || route === "其他航线") && child.value !== maxVal) cfg.label.show = false;
+                return cfg;
+            });
+            let node = { name: route, value: routeTotal, children: children };
+            if (route === "其他航线") node.label = { show: false, position: 'inside', offset: [80, -30], line: true, rotate: 'radial', formatter: (p) => `${p.name}\n${Math.round(p.value).toLocaleString()}`, fontWeight: 'bold', color: '#ADA6A5', fontSize: 9, lineStyle: { color: '#c97e5a' } };
+            if (route === "拉美") node.label = { show: true, position: 'inside', offset: [-80, 0], line: true, rotate: 'radial', formatter: (p) => `${p.name}\n${Math.round(p.value).toLocaleString()}`, fontWeight: 'bold', color: '#b23c1c', fontSize: 13, lineStyle: { color: '#c97e5a' } };
+            sunData.push(node);
+        }
+        let opt = {
+            tooltip: { trigger: 'item', formatter: p => `${p.name}: ${Math.round(p.value).toLocaleString()}` },
+            series: { type: 'sunburst', data: sunData, radius: [0, '90%'], center: ['50%', '50%'], nodeClick: 'rootNode', levels: [ { r0: '0%', r: '72%', label: { show: true, position: 'inside', rotate: 0, fontSize: 13, fontWeight: 'normal', color: '#2c5a7a', formatter: (p) => `${p.name}\n${Math.round(p.value).toLocaleString()}` }, itemStyle: { borderRadius: 8, borderColor: '#fff', borderWidth: 2 } }, { r0: '18%', r: '45%', label: { show: true, position: 'inside', rotate: 'radial', fontSize: 13, color: '#b23c1c', fontWeight: 'bold', formatter: (p) => `${p.name}\n${Math.round(p.value).toLocaleString()}` }, itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 1.5 } } ], label: { show: true }, itemStyle: { borderRadius: 10, borderColor: '#fff', borderWidth: 2 }, color: ['#6185b5', '#f0aa5e', '#71b874', '#c67e7e', '#7f8fa6', '#e0a878', '#73bfb5', '#e9967a'] }
+        };
+        if (!chartInstances.sunburst) chartInstances.sunburst = echarts.init(document.getElementById("chart-sunburst"));
+        chartInstances.sunburst.setOption(opt, true);
+    }
+    
+    function renderTickets(){
+        if(!filteredData.length) return;
+        let portTickets = new Map();
+        for(let r of filteredData) portTickets.set(r["操作口岸大类"], (portTickets.get(r["操作口岸大类"])||0) + r["票数"]);
+        let ports = Array.from(portTickets.keys()).sort((a,b)=>portTickets.get(b)-portTickets.get(a));
+        let opt = {
+            tooltip:{trigger:'axis', formatter: params => `${params[0].axisValue}<br/>票数: ${Math.round(params[0].value).toLocaleString()}`},
+            xAxis: { type: 'category', data: ports, axisLabel: { rotate: 30, fontSize: 12, fontWeight: 'bold' } },
+            yAxis:{type:'value', name:'票数', axisLabel: { formatter: (value) => Math.round(value).toLocaleString(), fontSize: 12 } },
+            series:[{type:'bar', data:ports.map(p=>portTickets.get(p)), itemStyle:{color:'#76b8b0'}, label:{show:true,position:'top', formatter: p => Math.round(p.value).toLocaleString()}}]
+        };
+        if(!chartInstances.tickets) chartInstances.tickets = echarts.init(document.getElementById("chart-tickets"));
+        chartInstances.tickets.setOption(opt, true);
+    }
+    
+    function renderCarrier() {
+        if (!filteredData.length) return;
+        let carrierPort = new Map(), carrierTotal = new Map();
+        for (let r of filteredData) {
+            let carrier = r["船公司R"], port = r["操作口岸大类"], qty = r["货量(船公司)"];
+            if (!carrierPort.has(carrier)) carrierPort.set(carrier, new Map());
+            let pm = carrierPort.get(carrier);
+            pm.set(port, (pm.get(port) || 0) + qty);
+            carrierTotal.set(carrier, (carrierTotal.get(carrier) || 0) + qty);
+        }
+        let sorted = Array.from(carrierTotal.entries()).sort((a, b) => b[1] - a[1]).map(x => x[0]);
+        let top6 = sorted.slice(0, 6);
+        if (top6.length === 0) return;
+        let allPorts = new Set();
+        for (let c of top6) for (let p of carrierPort.get(c).keys()) allPorts.add(p);
+        let portsList = Array.from(allPorts).sort();
+        let portColors = { '青岛分公司': '#8cb3d9', '上海分公司': '#87CEEB', '宁波分公司': '#f3bc7c', '厦门分公司': '#d9a7a7', '深圳分公司': '#b7b1d9', '天津分公司': '#b3d9c6', '非自建站点': '#b0c7a6' };
+        let getColor = p => portColors[p] || '#a0c4e2';
+        let series = portsList.map(port => ({ name: port, type: 'bar', stack: 'total', barWidth: '55%', data: top6.map(c => carrierPort.get(c).get(port) || 0), itemStyle: { color: getColor(port) }, label: { show: false } }));
+        let carriersRev = [...top6].reverse();
+        let totalsRev = carriersRev.map(c => carrierTotal.get(c));
+        for (let s of series) { let old = s.data; s.data = carriersRev.map(c => old[top6.indexOf(c)]); }
+        series.push({ name: '总货量标签', type: 'scatter', data: totalsRev.map((total, idx) => [total, idx]), symbol: 'circle', symbolSize: 2, itemStyle: { color: 'transparent' }, tooltip: { show: false }, label: { show: true, position: 'right', offset: [12, 0], formatter: (params) => Math.round(params.value[0]).toLocaleString(), fontWeight: 'bold', color: '#1e466e', fontSize: 12, backgroundColor: 'rgba(255,255,255,0.85)', padding: [2,8,2,8], borderRadius: 12 }, labelLayout: { hideOverlap: true }, large: false, clip: false });
+        let opt = {
+            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: function(params) { let res = params[0].axisValue + '<br/>'; let total = 0; for (let p of params) { if (p.seriesName === '总货量标签') continue; if (p.value !== undefined) { total += p.value; res += `${p.marker} ${p.seriesName}: ${Math.round(p.value).toLocaleString()}<br/>`; } } res += `<strong>合计: ${Math.round(total).toLocaleString()}</strong>`; return res; } },
+            legend: { data: portsList, left: 'right', top: 0, type: 'scroll' },
+            grid: { containLabel: true, left: '12%', right: '18%', top: 50, bottom: 20 },
+            xAxis: { type: 'value', name: '货量 (船公司口径)', axisLabel: { formatter: (v) => Math.round(v).toLocaleString() } },
+            yAxis: { type: 'category', data: carriersRev, axisLabel: { fontSize: 12, fontWeight: 'bold' } },
+            series: series
+        };
+        if (!chartInstances.carrier) chartInstances.carrier = echarts.init(document.getElementById("chart-carrier-stack"));
+        chartInstances.carrier.setOption(opt, true);
+    }
+    
+    function renderAll(){
+        if(!filteredData.length) return;
+        renderSummaryTable();
+        renderBarLine();
+        renderDonut();
+        renderSunburst();
+        renderTickets();
+        renderCarrier();
+        setTimeout(() => { Object.values(chartInstances).forEach(ch => ch && ch.resize()); }, 50);
+    }
+    
+    function applyFilters(){
+        let route = document.getElementById("filter-route").value;
+        let product = document.getElementById("filter-product").value;
+        let week = document.getElementById("filter-week").value;
+        filteredData = rawData.filter(r => {
+            if(route !== "ALL" && r["航线R"] !== route) return false;
+            if(product !== "ALL" && r["产品类型大类"] !== product) return false;
+            if(week !== "ALL" && r["开航周R"] !== week) return false;
+            return true;
+        });
+        renderAll();
+        updateKPI();
+    }
+    
+    function initFilters(){
+        let routes = new Set(["ALL"]), products = new Set(["ALL"]), weeks = new Set(["ALL"]);
+        for(let r of rawData){
+            routes.add(r["航线R"]);
+            products.add(r["产品类型大类"]);
+            if(r["开航周R"]) weeks.add(r["开航周R"]);
+        }
+        let routeSel = document.getElementById("filter-route");
+        routeSel.innerHTML = Array.from(routes).sort().map(v=>`<option value="${v}">${v}</option>`).join('');
+        let prodSel = document.getElementById("filter-product");
+        prodSel.innerHTML = Array.from(products).sort().map(v=>`<option value="${v}">${v}</option>`).join('');
+        let weekArr = ["ALL", ...Array.from(weeks).filter(w=>w!=="ALL").sort()];
+        let weekSel = document.getElementById("filter-week");
+        weekSel.innerHTML = weekArr.map(v=>`<option value="${v}">${v}</option>`).join('');
+        routeSel.value = "ALL";
+        prodSel.value = "整箱";
+        let defaultWeek = weekArr.filter(w=>w!=="ALL").pop() || "ALL";
+        weekSel.value = defaultWeek;
+    }
+    
+    function fillCardContent(card, type){
+        if(type === 'kpi-fcl'){
+            card.innerHTML = `<div class="kpi-left"><h4>📦 整箱货量</h4><div class="kpi-main"><span id="fcl-total">0</span><span class="unit">TEU</span><span id="fcl-delta" class="delta"></span></div></div><div class="kpi-right"><div class="right-stat"><span>自揽货</span><span><span id="fcl-self">0</span><span id="fcl-self-delta" class="small-delta-kpi"></span></span></div><div class="right-stat"><span>指定货</span><span><span id="fcl-dsg">0</span><span id="fcl-dsg-delta" class="small-delta-kpi"></span></span></div></div>`;
+        } else if(type === 'kpi-lcl'){
+            card.innerHTML = `<div class="kpi-left"><h4>📦 拼箱货量</h4><div class="kpi-main"><span id="lcl-total">0</span><span class="unit">CBM</span><span id="lcl-delta" class="delta"></span></div></div><div class="kpi-right"><div class="right-stat"><span>自揽货</span><span><span id="lcl-self">0</span><span id="lcl-self-delta" class="small-delta-kpi"></span></span></div><div class="right-stat"><span>指定货</span><span><span id="lcl-dsg">0</span><span id="lcl-dsg-delta" class="small-delta-kpi"></span></span></div></div>`;
+        } else if(type === 'kpi-tickets'){
+            card.innerHTML = `<div class="kpi-left"><h4>🎫 票数统计</h4><div class="kpi-main"><span id="total-tickets">0</span><span class="unit">票</span><span id="tickets-delta" class="delta"></span></div></div><div class="kpi-right"><div class="right-stat"><span>整箱票数</span><span id="fcl-tickets">0</span></div><div class="right-stat"><span>拼箱票数</span><span id="lcl-tickets">0</span></div></div>`;
+        } else if(type === 'table'){
+            card.innerHTML = `<div class="card-header"><h3>📍 操作口岸货量汇总 </h3></div><div class="table-wrapper"><table><thead><tr><th>操作口岸大类</th><th>自配货量</th><th>外配货量</th><th>其他</th><th>合计</th></tr></thead><tbody id="summary-table-body"></tbody></table></div>`;
+        } else if(type === 'barline'){
+            card.innerHTML = `<div class="card-header"><h3>📊 业务口岸货量趋势</h3></div><div id="chart-bar-line" class="chart-box"></div>`;
+        } else if(type === 'donut'){
+            card.innerHTML = `<div class="card-header"><h3>🎯 产品类型货量占比</h3></div><div id="chart-donut" class="chart-box"></div>`;
+        } else if(type === 'sunburst'){
+            card.innerHTML = `<div class="card-header"><h3>🌐 航线 & 业务口岸旭日图</h3></div><div id="chart-sunburst" class="chart-box"></div>`;
+        } else if(type === 'tickets'){
+            card.innerHTML = `<div class="card-header"><h3>🧾 各操作口岸票数统计</h3></div><div id="chart-tickets" class="chart-box"></div>`;
+        } else if(type === 'carrier'){
+            card.innerHTML = `<div class="card-header"><h3>🚢 总货量 TOP6 船公司 · 各操作口岸货量分布</h3></div><div id="chart-carrier-stack" class="chart-box"></div>`;
+        }
+    }
+    
+    function initDragResize(){
+        interact('.card, .kpi-card').draggable({
+            listeners: { move(event) { let target = event.target; let left = (parseFloat(target.style.left) || 0) + event.dx; let top = (parseFloat(target.style.top) || 0) + event.dy; target.style.left = left + 'px'; target.style.top = top + 'px'; target.style.zIndex = '1000'; }, end(event){ event.target.style.zIndex = ''; } },
+            modifiers: [ interact.modifiers.restrictRect({ restriction: 'parent', endOnly: true }) ], inertia: false
+        });
+        interact('.card, .kpi-card').resizable({
+            edges: { left: false, right: true, bottom: true, top: false },
+            listeners: { move(event) { let target = event.target; let newWidth = Math.max(120, event.rect.width); let newHeight = Math.max(80, event.rect.height); target.style.width = newWidth + 'px'; target.style.height = newHeight + 'px'; Object.values(chartInstances).forEach(ch => ch && ch.resize()); } },
+            modifiers: []
+        });
+    }
+    
+    // 布局相关函数
+    function getCurrentLayout() {
+        const cards = document.querySelectorAll('#cardsContainer > .card, #cardsContainer > .kpi-card');
+        const layout = {};
+        cards.forEach((card, idx) => {
+            const id = card.getAttribute('data-id') || `card_${idx}`;
+            layout[id] = {
+                left: parseFloat(card.style.left) || 0,
+                top: parseFloat(card.style.top) || 0,
+                width: parseFloat(card.style.width) || 0,
+                height: parseFloat(card.style.height) || 0
+            };
+        });
+        const containerRect = cardsContainer.getBoundingClientRect();
+        const meta = { containerWidth: containerRect.width, containerHeight: containerRect.height, timestamp: Date.now() };
+        return { layout, meta };
+    }
+    
+    function applyLayoutData(data, scaleToCurrent = true) {
+        if (!data || !data.layout) return false;
+        const cards = document.querySelectorAll('#cardsContainer > .card, #cardsContainer > .kpi-card');
+        if (cards.length === 0) return false;
+        let scaleX = 1, scaleY = 1;
+        if (scaleToCurrent && data.meta && data.meta.containerWidth) {
+            const currentRect = cardsContainer.getBoundingClientRect();
+            scaleX = currentRect.width / data.meta.containerWidth;
+            scaleY = currentRect.height / data.meta.containerHeight;
+            scaleX = Math.min(2, Math.max(0.4, scaleX));
+            scaleY = Math.min(2, Math.max(0.4, scaleY));
+        }
+        cards.forEach(card => {
+            const id = card.getAttribute('data-id');
+            const saved = data.layout[id];
+            if (saved) {
+                let newLeft = saved.left * scaleX;
+                let newTop = saved.top * scaleY;
+                let newWidth = saved.width * scaleX;
+                let newHeight = saved.height * scaleY;
+                newLeft = Math.max(0, Math.min(newLeft, cardsContainer.clientWidth - newWidth));
+                newTop = Math.max(0, Math.min(newTop, cardsContainer.clientHeight - newHeight));
+                newWidth = Math.max(120, newWidth);
+                newHeight = Math.max(80, newHeight);
+                card.style.left = newLeft + 'px';
+                card.style.top = newTop + 'px';
+                card.style.width = newWidth + 'px';
+                card.style.height = newHeight + 'px';
+            }
+        });
+        setTimeout(() => { Object.values(chartInstances).forEach(ch => ch && ch.resize()); }, 50);
+        return true;
+    }
+    
+    function saveLayoutToLocal() {
+        const full = getCurrentLayout();
+        localStorage.setItem(LAYOUT_KEY, JSON.stringify(full));
+        hasCustomLayout = true;
+        showToast("✅ 布局已保存到本机");
+    }
+    
+    function exportLayoutToFile() {
+        const full = getCurrentLayout();
+        const dataStr = JSON.stringify(full, null, 2);
+        const blob = new Blob([dataStr], {type: 'application/json'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `freight_layout_${new Date().toISOString().slice(0,19)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast("📁 布局文件已导出，可发送给他人");
+    }
+    
+    function importLayoutFromFile(file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const data = JSON.parse(e.target.result);
+                if (data && data.layout) {
+                    applyLayoutData(data, true);
+                    hasCustomLayout = true;
+                    showToast("📥 布局导入成功，已自动适配屏幕");
+                } else {
+                    showToast("❌ 无效的布局文件");
+                }
+            } catch(err) {
+                showToast("❌ 解析失败");
+            }
+        };
+        reader.readAsText(file);
+    }
+    
+    function restoreLayoutFromLocal() {
+        const saved = localStorage.getItem(LAYOUT_KEY);
+        if (saved) {
+            try {
+                const data = JSON.parse(saved);
+                if (data && data.layout) {
+                    applyLayoutData(data, true);
+                    hasCustomLayout = true;
+                    return true;
+                }
+            } catch(e) {}
+        }
+        return false;
+    }
+    
+    function scaleDefaultLayout() {
+        const containerRect = cardsContainer.getBoundingClientRect();
+        const currentWidth = containerRect.width;
+        if (currentWidth <= 0) return;
+        const scale = currentWidth / DEFAULT_DESIGN_WIDTH;
+        const finalScale = Math.min(1.2, Math.max(0.5, scale));
+        const cards = document.querySelectorAll('#cardsContainer > .card, #cardsContainer > .kpi-card');
+        if (cards.length !== DEFAULT_CARDS.length) return;
+        cards.forEach((card, idx) => {
+            const def = DEFAULT_CARDS[idx];
+            const newLeft = def.left * finalScale;
+            const newTop = def.top * finalScale;
+            const newWidth = def.width * finalScale;
+            const newHeight = def.height * finalScale;
+            card.style.left = newLeft + 'px';
+            card.style.top = newTop + 'px';
+            card.style.width = newWidth + 'px';
+            card.style.height = newHeight + 'px';
+        });
+        setTimeout(() => { Object.values(chartInstances).forEach(ch => ch && ch.resize()); }, 30);
+    }
+    
+    function resetLayout() {
+        localStorage.removeItem(LAYOUT_KEY);
+        hasCustomLayout = false;
+        const oldCards = document.querySelectorAll('#cardsContainer > .card, #cardsContainer > .kpi-card');
+        oldCards.forEach(card => card.remove());
+        for(let i=0; i<DEFAULT_CARDS.length; i++) {
+            let def = DEFAULT_CARDS[i];
+            let card = document.createElement('div');
+            card.className = (def.type.startsWith('kpi') ? 'kpi-card' : 'card');
+            card.style.position = 'absolute';
+            card.setAttribute('data-type', def.type);
+            card.setAttribute('data-id', 'card_'+i);
+            cardsContainer.appendChild(card);
+            fillCardContent(card, def.type);
+            let handle = document.createElement('div');
+            handle.className = 'resize-handle';
+            card.appendChild(handle);
+        }
+        initDragResize();
+        scaleDefaultLayout();
+        if (filteredData.length) renderAll();
+        showToast("布局已重置，已根据当前屏幕自适应");
+    }
+    
+    function showToast(msg) {
+        const toast = document.getElementById('toastMsg');
+        toast.textContent = msg;
+        toast.style.opacity = '1';
+        setTimeout(() => { toast.style.opacity = '0'; }, 2500);
+    }
+    
+    // 自动加载同目录下的 data.xlsx 文件，若不存在则使用内置示例数据
+    function loadDataFromExcel() {
+        const statusDiv = document.getElementById("upload-status");
+        statusDiv.innerHTML = "📂 正在加载预设数据...";
+        fetch('./data.xlsx')
+            .then(response => {
+                if (!response.ok) throw new Error('文件不存在');
+                return response.arrayBuffer();
+            })
+            .then(buffer => {
+                const workbook = XLSX.read(buffer, {type: 'array'});
+                const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                const rows = XLSX.utils.sheet_to_json(sheet);
+                if (!rows.length) throw new Error('空数据');
+                rawData = preprocessData(rows);
+                initFilters();
+                applyFilters();
+                statusDiv.innerHTML = "✅ 已加载预设数据 (data.xlsx)";
+            })
+            .catch(err => {
+                console.warn("未找到 data.xlsx，使用内置示例数据", err);
+                // 内置示例数据（保留原样）
+                let sample = [
+                    {"航线R":"加线","产品类型大类":"整箱","开航周R":"202615","业务性质R":"自配","操作口岸大类":"青岛分公司","业务口岸大类":"青岛","货量":1200,"揽货方式R":"自揽货","产品类型":"普柜","票数":5,"货量(船公司)":1200,"船公司R":"OOCL"},
+                    {"航线R":"拉美","产品类型大类":"整箱","开航周R":"202615","业务性质R":"自配","操作口岸大类":"上海分公司","业务口岸大类":"上海","货量":950,"揽货方式R":"自揽货","产品类型":"普柜","票数":3,"货量(船公司)":950,"船公司R":"CMA"},
+                    {"航线R":"其他航线","产品类型大类":"整箱","开航周R":"202615","业务性质R":"外配","操作口岸大类":"宁波分公司","业务口岸大类":"宁波","货量":780,"揽货方式R":"指定货","产品类型":"普柜","票数":2,"货量(船公司)":780,"船公司R":"ZIM"},
+                    {"航线R":"美线","产品类型大类":"整箱","开航周R":"202615","业务性质R":"其他","操作口岸大类":"厦门分公司","业务口岸大类":"厦门","货量":670,"揽货方式R":"指定货","产品类型":"SOC箱","票数":2,"货量(船公司)":670,"船公司R":"ZIM"},
+                    {"航线R":"加线","产品类型大类":"拼箱","开航周R":"202615","业务性质R":"自配","操作口岸大类":"青岛分公司","业务口岸大类":"青岛","货量":340,"揽货方式R":"自揽货","产品类型":"普柜","票数":1,"货量(船公司)":340,"船公司R":"SML"},
+                    {"航线R":"美西PSW","产品类型大类":"整箱","开航周R":"202615","业务性质R":"自配","操作口岸大类":"深圳分公司","业务口岸大类":"深圳","货量":950,"揽货方式R":"自揽货","产品类型":"特种柜","票数":4,"货量(船公司)":950,"船公司R":"CMA"},
+                    {"航线R":"拉美","产品类型大类":"拼箱","开航周R":"202614","业务性质R":"指定","操作口岸大类":"上海分公司","业务口岸大类":"上海","货量":420,"揽货方式R":"指定货","产品类型":"普柜","票数":2,"货量(船公司)":420,"船公司R":"HPL"},
+                    {"航线R":"其他航线","产品类型大类":"拼箱","开航周R":"202614","业务性质R":"其他","操作口岸大类":"宁波分公司","业务口岸大类":"宁波","货量":280,"揽货方式R":"指定货","产品类型":"普柜","票数":1,"货量(船公司)":280,"船公司R":"HPL"},
+                ];
+                rawData = preprocessData(sample);
+                initFilters();
+                applyFilters();
+                statusDiv.innerHTML = "✨ 使用内置示例数据（未找到 data.xlsx）";
+            });
+    }
+    
+    // 页面初始化
+    function init() {
+        for(let i=0; i<DEFAULT_CARDS.length; i++){
+            let def = DEFAULT_CARDS[i];
+            let card = document.createElement('div');
+            card.className = (def.type.startsWith('kpi') ? 'kpi-card' : 'card');
+            card.style.position = 'absolute';
+            card.setAttribute('data-type', def.type);
+            card.setAttribute('data-id', 'card_'+i);
+            cardsContainer.appendChild(card);
+            fillCardContent(card, def.type);
+            let handle = document.createElement('div');
+            handle.className = 'resize-handle';
+            card.appendChild(handle);
+        }
+        initDragResize();
+        const hasSaved = restoreLayoutFromLocal();
+        if (!hasSaved) {
+            scaleDefaultLayout();
+            hasCustomLayout = false;
+        } else {
+            hasCustomLayout = true;
+        }
+        loadDataFromExcel();  // 自动加载 Excel 数据
+    }
+    
+    // 事件绑定
+    document.getElementById('saveLayoutBtn').addEventListener('click', saveLayoutToLocal);
+    document.getElementById('exportLayoutBtn').addEventListener('click', exportLayoutToFile);
+    document.getElementById('resetLayoutBtn').addEventListener('click', resetLayout);
+    document.getElementById('importLayoutFile').addEventListener('change', (e) => {
+        if (e.target.files.length) {
+            importLayoutFromFile(e.target.files[0]);
+            e.target.value = '';
+        }
+    });
+    document.getElementById("excel-upload").addEventListener("change", e=>{
+        if(!e.target.files[0]) return;
+        let reader = new FileReader();
+        reader.onload = ev => {
+            try{
+                let workbook = XLSX.read(ev.target.result, {type:'array'});
+                let sheet = workbook.Sheets[workbook.SheetNames[0]];
+                let rows = XLSX.utils.sheet_to_json(sheet);
+                if(!rows.length) throw new Error("空数据");
+                rawData = preprocessData(rows);
+                initFilters();
+                applyFilters();
+                document.getElementById("upload-status").innerHTML = "✅ 数据加载成功";
+            }catch(e){ document.getElementById("upload-status").innerHTML = "❌ 文件解析失败"; }
+        };
+        reader.readAsArrayBuffer(e.target.files[0]);
+    });
+    document.getElementById("filter-route").addEventListener("change", applyFilters);
+    document.getElementById("filter-product").addEventListener("change", applyFilters);
+    document.getElementById("filter-week").addEventListener("change", applyFilters);
+    
+    let modalOverlay = document.getElementById("modalOverlay");
+    let modalCloseBtn = document.querySelector(".modal-close");
+    let modalChartDiv = document.getElementById("modalChart");
+    function openModal(chartKey, title){
+        let chart = chartInstances[chartKey];
+        if(!chart) return;
+        document.getElementById("modalTitle").innerText = title;
+        modalOverlay.style.display = "flex";
+        if(modalChart) modalChart.dispose();
+        modalChart = echarts.init(modalChartDiv);
+        modalChart.setOption(chart.getOption(), true);
+    }
+    modalCloseBtn.onclick = () => { modalOverlay.style.display = "none"; if(modalChart){ modalChart.dispose(); modalChart=null; } };
+    modalOverlay.onclick = (e) => { if(e.target === modalOverlay) modalCloseBtn.click(); };
+    document.addEventListener('click', (e)=>{
+        let card = e.target.closest('.card');
+        if(!card) return;
+        let chartType = null;
+        if(card.querySelector('#chart-bar-line')) chartType = 'barline';
+        else if(card.querySelector('#chart-donut')) chartType = 'donut';
+        else if(card.querySelector('#chart-sunburst')) chartType = 'sunburst';
+        else if(card.querySelector('#chart-tickets')) chartType = 'tickets';
+        else if(card.querySelector('#chart-carrier-stack')) chartType = 'carrier';
+        if(chartType) openModal(chartType, card.querySelector('.card-header h3')?.innerText || '图表');
+    });
+    
+    window.addEventListener('resize', () => {
+        if (!hasCustomLayout) scaleDefaultLayout();
+        Object.values(chartInstances).forEach(ch => ch && ch.resize());
+        if(modalChart) modalChart.resize();
+    });
+    
+    init();
+})();
+</script>
+</body>
+</html>
